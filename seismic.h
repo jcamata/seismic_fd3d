@@ -9,6 +9,7 @@ typedef struct{
         DM  da;
         PetscReal delta_t;
         PetscReal delta_xyz;
+        int file_id;
 } FD3D_Parameters; 
 
 

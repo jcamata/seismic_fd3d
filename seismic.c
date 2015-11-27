@@ -1,28 +1,12 @@
 
-static char help[] = "Tests DMGetGlobalVector() and DMRestoreGlobalVector().\n\n";
-
-/*
-Use the options
-     -da_grid_x <nx> - number of grid points in x direction, if M < 0
-     -da_grid_y <ny> - number of grid points in y direction, if N < 0
-     -da_processors_x <MX> number of processors in x directio
-     -da_processors_y <MY> number of processors in x direction
-*/
+static char help[] = "SEISMIC 3D.\n\n";
 
 #include <petscdm.h>
 #include <petscdmda.h>
 
-#define HALF_LENGTH 4
+#include "seismic.h"
 
-typedef struct{
-	int nreps;        	// number of time-steps, over which performance is averaged
-	Vec prev;	
-	Vec next;
-	Vec vel;
-        DM  da;
-        PetscReal delta_t;
-        PetscReal delta_xyz;
-} FD3D_Parameters; 
+
 
 void CreateGrid(FD3D_Parameters *p, int nx, int ny, int nz)
 {
@@ -33,6 +17,7 @@ void CreateGrid(FD3D_Parameters *p, int nx, int ny, int nz)
    DMGetGlobalVector(p->da,&p->next);
    DMGetGlobalVector(p->da,&p->prev);
    DMGetGlobalVector(p->da,&p->vel);
+   p->file_id       = 0;
   
 }
 
@@ -58,8 +43,8 @@ void InitializeArrays(FD3D_Parameters *p)
     DMDAGetCorners(p->da,&xs,&ys,&zs,&xm,&ym,&zm);
     
     int nz2 = nz/2;
-    int ny4 = ny/4;
-    int nx4 = nx/4;
+    int ny4 = ny/2;
+    int nx4 = nx/2;
     double val = 1.0;
     
     for(s=5; s >=0; s--) 
@@ -94,6 +79,7 @@ void iso_3dfd_it(FD3D_Parameters *p, Vec next, Vec prev, Vec vel, double* coeff)
     PetscScalar  ***p_next;
     PetscScalar  ***p_prev;
     PetscScalar  uh2 = 1.0/(p->delta_xyz*p->delta_xyz);
+    PetscInt     i_start, i_end, j_start, j_end, k_start, k_end;
     
     DMDAGetInfo(p->da,PETSC_IGNORE,&nx,&ny,&nz,PETSC_IGNORE,PETSC_IGNORE,PETSC_IGNORE,PETSC_IGNORE,PETSC_IGNORE,PETSC_IGNORE,PETSC_IGNORE,PETSC_IGNORE,PETSC_IGNORE);
     DMDAGetCorners(p->da,&xs,&ys,&zs,&xm,&ym,&zm);
@@ -106,7 +92,8 @@ void iso_3dfd_it(FD3D_Parameters *p, Vec next, Vec prev, Vec vel, double* coeff)
     DMDAVecGetArray(p->da,vel   ,&p_vel);
     DMDAVecGetArray(p->da,l_prev,&p_prev);
     DMDAVecGetArray(p->da,next  ,&p_next);
-    
+       
+        
     for (k=zs; k<zs+zm; k++) {
         for (j=ys; j<ys+ym; j++) {
             for (i=xs; i<xs+xm; i++) {
@@ -141,11 +128,18 @@ void iso_3dfd_it(FD3D_Parameters *p, Vec next, Vec prev, Vec vel, double* coeff)
 void iso_3dfd( FD3D_Parameters *p, double* coeff)
 {
    int it;
+   
+   VTKIO_PVTI_Write(p, p->prev,"pressure", "teste");
+   
    for(it=0; it< p->nreps; it+=2){
        
        iso_3dfd_it(p,p->next,p->prev,p->vel, coeff);
        
        iso_3dfd_it(p,p->prev,p->next,p->vel, coeff);
+       
+      if(it%50 == 0 ) 
+            VTKIO_PVTI_Write(p, p->prev,"pressure", "teste");
+       
    }
 }
 
@@ -164,21 +158,25 @@ int main(int argc,char **argv)
                         -1.785714e-3};
   
   PetscInitialize(&argc,&argv,(char*)0,help);
+  
   CreateGrid(&p,256,300,300);
   p.delta_t   = 0.002;
   p.delta_xyz = 50.0;
-  p.nreps     = 100;
+  p.nreps     = 500;
   
   InitializeArrays(&p);
+  
   iso_3dfd(&p,coeff);
   
-  PetscViewer viewer;
-  PetscViewerVTKOpen(PETSC_COMM_WORLD,"fd3d.vts",FILE_MODE_WRITE,&viewer);
-  PetscObjectSetName((PetscObject)p.next,"prev");
-  VecView(p.next,    viewer);
-  PetscViewerDestroy(&viewer);
+  //PetscViewer viewer;
+  //PetscViewerVTKOpen(PETSC_COMM_WORLD,"fd3d.vts",FILE_MODE_WRITE,&viewer);
+  //PetscObjectSetName((PetscObject)p.next,"prev");
+  //VecView(p.next,    viewer);
+  //PetscViewerDestroy(&viewer);
+
+  //VTKIO_PVTI_Write(&p, p.next,"pressure", "teste");
           
   DestroyGrid(&p);
   PetscFinalize();
-  return;
+  return 0;
 }

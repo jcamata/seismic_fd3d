@@ -10,11 +10,11 @@ EXAMPLESC       =
 include ${PETSC_DIR}/lib/petsc/conf/variables
 include ${PETSC_DIR}/lib/petsc/conf/rules
 
-all: ex12
+all: seismic
 
-ex12: ex12.o   chkopts
-	-${CLINKER} -o ex12 ex12.o  ${PETSC_DM_LIB}
-	${RM} -f ex12.o
+seismic: seismic.o vti_io.o  chkopts
+	-${CLINKER} -o seismic seismic.o vti_io.o ${PETSC_DM_LIB}
+	${RM} -f *.o
 
 
 
