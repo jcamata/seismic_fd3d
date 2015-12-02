@@ -1,6 +1,6 @@
 PETSC_DIR := /usr/local/lib/petsc/3.6.1
 	
-CFLAGS	        =
+CFLAGS	        = 
 FFLAGS	        =
 CPPFLAGS        =
 FPPFLAGS        =

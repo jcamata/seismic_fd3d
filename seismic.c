@@ -81,7 +81,7 @@ void iso_3dfd_it(FD3D_Parameters *p, Vec next, Vec prev, Vec vel, double* coeff)
     PetscScalar  uh2 = 1.0/(p->delta_xyz*p->delta_xyz);
     PetscInt     i_start, i_end, j_start, j_end, k_start, k_end;
     
-    DMDAGetInfo(p->da,PETSC_IGNORE,&nx,&ny,&nz,PETSC_IGNORE,PETSC_IGNORE,PETSC_IGNORE,PETSC_IGNORE,PETSC_IGNORE,PETSC_IGNORE,PETSC_IGNORE,PETSC_IGNORE,PETSC_IGNORE);
+    DMDAGetInfo(p->da,0,&nx,&ny,&nz,0,0,0,0,0,0,0,0,0);
     DMDAGetCorners(p->da,&xs,&ys,&zs,&xm,&ym,&zm);
      
     DMGetLocalVector(p->da,&l_prev);
@@ -92,12 +92,26 @@ void iso_3dfd_it(FD3D_Parameters *p, Vec next, Vec prev, Vec vel, double* coeff)
     DMDAVecGetArray(p->da,vel   ,&p_vel);
     DMDAVecGetArray(p->da,l_prev,&p_prev);
     DMDAVecGetArray(p->da,next  ,&p_next);
+    i_start = xs;
+    j_start = ys;
+    k_start = zs;
+    i_end   = xs+xm;
+    j_end   = ys+ym;
+    k_end   = zs+zm;
+    
+    if(i_start == 0 )    i_start = HALF_LENGTH;
+    if(i_end   == nx)    i_end   = nx-HALF_LENGTH;
+    if(j_start == 0 )    j_start = HALF_LENGTH;
+    if(j_end   == ny)    j_end   = ny-HALF_LENGTH;
+    if(k_start == 0)     k_start = HALF_LENGTH;
+    if(k_end == nz )     k_end   = nz-HALF_LENGTH;
        
-        
-    for (k=zs; k<zs+zm; k++) {
-        for (j=ys; j<ys+ym; j++) {
-            for (i=xs; i<xs+xm; i++) {
-                if( i>=HALF_LENGTH && i<(nx-HALF_LENGTH) && j>=HALF_LENGTH && j<(ny-HALF_LENGTH) && k>=HALF_LENGTH && k<(nz-HALF_LENGTH) ) 
+
+#pragma omp parallel for private(k,j,i,r)
+    for (k=k_start; k<k_end; k++) {
+        for (j=j_start; j<j_end; j++) {
+            for (i=i_start; i<i_end; i++) {
+                //if( i>=HALF_LENGTH && i<(nx-HALF_LENGTH) && j>=HALF_LENGTH && j<(ny-HALF_LENGTH) && k>=HALF_LENGTH && k<(nz-HALF_LENGTH) ) 
                 {
                    
                     double value = p_prev[k][j][i]*coeff[0];
@@ -180,3 +194,107 @@ int main(int argc,char **argv)
   PetscFinalize();
   return 0;
 }
+
+
+/*
+void WriteSismogram(FD3D_Parameters *p, int xplane, int yplane, const char* filename)
+{
+    PetscMPIInt    rank, size;
+    MPI_Comm       comm;
+    PetscInt       r,i,j,k,M,N,P,xs,ys,zs,xm,ym,zm, sum, ierr, pM,pN,pP, stencil;
+    const PetscInt *lx,*ly,*lz;
+    PetscInt       *osx,*osy,*osz,*oex,*oey,*oez, *olx,*oly,*olz;
+    MPI_File fhw;
+    
+    DMDAGetInfo(p->da,0,&M,&N,&P,&pM,&pN,&pP,0,&stencil,0,0,0,0);
+    DMDAGetCorners(p->da,&xs,&ys,&zs,&xm,&ym,&zm);
+    ierr = DMDAGetOwnershipRanges(p->da,&lx,&ly,&lz);CHKERRQ(ierr);
+    
+    PetscObjectGetComm((PetscObject)p->da,&comm);
+    MPI_Comm_rank(comm,&rank);
+    MPI_Comm_size(comm,&size);
+    
+    // generate start,end list 
+    ierr = PetscMalloc1(pM+1,&olx);CHKERRQ(ierr);
+    ierr = PetscMalloc1(pN+1,&oly);CHKERRQ(ierr);
+    ierr = PetscMalloc1(pP+1,&olz);CHKERRQ(ierr);
+    sum  = 0;
+    for (i=0; i<pM; i++) {
+        olx[i] = sum;
+        sum    = sum + lx[i];
+    }
+    olx[pM] = sum;
+    sum     = 0;
+    for (i=0; i<pN; i++) {
+        oly[i] = sum;
+        sum    = sum + ly[i];
+    }
+    oly[pN] = sum;
+    sum     = 0;
+    for (i=0; i<pP; i++) {
+        olz[i] = sum;
+        sum    = sum + lz[i];
+    }
+    olz[pP] = sum;
+
+    ierr = PetscMalloc1(pM,&osx);CHKERRQ(ierr);
+    ierr = PetscMalloc1(pN,&osy);CHKERRQ(ierr);
+    ierr = PetscMalloc1(pP,&osz);CHKERRQ(ierr);
+    ierr = PetscMalloc1(pM,&oex);CHKERRQ(ierr);
+    ierr = PetscMalloc1(pN,&oey);CHKERRQ(ierr);
+    ierr = PetscMalloc1(pP,&oez);CHKERRQ(ierr);
+
+    for (i=0; i<pM; i++) {
+        osx[i] = olx[i] - stencil;
+        oex[i] = olx[i] + lx[i] + stencil;
+        if (osx[i]<0) osx[i]=0;
+        if (oex[i]>M) oex[i]=M;
+    }
+
+    for (i=0; i<pN; i++) {
+        osy[i] = oly[i] - stencil;
+        oey[i] = oly[i] + ly[i] + stencil;
+        if (osy[i]<0)osy[i]=0;
+        if (oey[i]>M)oey[i]=N;
+    }
+    for (i=0; i<pP; i++) {
+        osz[i] = olz[i] - stencil;
+        oez[i] = olz[i] + lz[i] + stencil;
+        if (osz[i]<0) osz[i]=0;
+        if (oez[i]>P) oez[i]=P;
+    }
+
+    MPI_File_open(MPI_COMM_WORLD, "sismograma_x.bin",
+       MPI_MODE_CREATE|MPI_MODE_WRONLY, MPI_INFO_NULL, &fhw);
+
+    if( (xs >= xplane) && (xplane < (xs+xm)) ) {
+        
+        int local = ym*zm;
+        int myoffset = 0;
+        for(int i = 0; i <= rank; i++)
+        {
+            if( osx[i] >= xplane &&  < (oex[i]))
+                myoffset += oly[i]*olz[i]*sizeof(double);
+        }
+        
+        MPI_File_write_at(fhw, myoffset, buf, (N/size), MPI_INT, &status);
+        
+    }
+    
+    
+  ierr = PetscFree(olx);CHKERRQ(ierr);
+  ierr = PetscFree(oly);CHKERRQ(ierr);
+  ierr = PetscFree(olz);CHKERRQ(ierr);
+  ierr = PetscFree(osx);CHKERRQ(ierr);
+  ierr = PetscFree(osy);CHKERRQ(ierr);
+  ierr = PetscFree(osz);CHKERRQ(ierr);
+  ierr = PetscFree(oex);CHKERRQ(ierr);
+  ierr = PetscFree(oey);CHKERRQ(ierr);
+  ierr = PetscFree(oez);CHKERRQ(ierr);
+    
+        
+    
+  
+    
+}
+*/
